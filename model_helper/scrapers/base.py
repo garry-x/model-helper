@@ -137,7 +137,9 @@ class ModelDBScraper(BaseScraper):
         data = response.json()
 
         models = []
-        for model_data in data.get("data", []):
+        # Handle both list response and dict with "data" key
+        model_list = data if isinstance(data, list) else data.get("data", [])
+        for model_data in model_list:
             model = ModelInfo(
                 id=model_data.get("model_id", ""),
                 name=model_data.get("model_id", "").replace("_", " ").title(),

@@ -33,7 +33,7 @@ class CacheManager:
             await db.execute(
                 """
                 INSERT OR REPLACE INTO models (
-                    id, name, provider, family, total_params, activated_params,
+                    id, model_id, name, provider, family, total_params, activated_params,
                     architecture, num_experts, attention_type, context_length,
                     max_output_tokens, input_modalities, output_modalities,
                     supports_function_calling, supports_vision, supports_reasoning,
@@ -41,10 +41,11 @@ class CacheManager:
                     output_price_per_million, release_date, knowledge_cutoff,
                     training_tokens, license, huggingface_id, api_model_id,
                     cached_at, source
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     model.id,
+                    model.model_id,
                     model.name,
                     model.provider,
                     model.family,
@@ -77,10 +78,16 @@ class CacheManager:
             await db.commit()
 
     async def get_model(self, model_id: str) -> Optional[ModelInfo]:
-        """Get a model by ID."""
+        """Get a model by ID or name (fuzzy search)."""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("SELECT * FROM models WHERE id = ?", (model_id,)) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return self._row_to_model(row)
+            async with db.execute(
+                "SELECT * FROM models WHERE name LIKE ? LIMIT 1", (f"%{model_id}%",)
+            ) as cursor:
                 row = await cursor.fetchone()
                 if row:
                     return self._row_to_model(row)
@@ -237,6 +244,7 @@ class CacheManager:
         sample_models = [
             ModelInfo(
                 id="gpt-4o",
+                model_id="openai/gpt-4o",
                 name="GPT-4o",
                 provider="openai",
                 family="gpt-4",
@@ -252,6 +260,7 @@ class CacheManager:
             ),
             ModelInfo(
                 id="gpt-4o-mini",
+                model_id="openai/gpt-4o-mini",
                 name="GPT-4o mini",
                 provider="openai",
                 family="gpt-4",
@@ -266,6 +275,7 @@ class CacheManager:
             ),
             ModelInfo(
                 id="gpt-4-turbo",
+                model_id="openai/gpt-4-turbo",
                 name="GPT-4 Turbo",
                 provider="openai",
                 family="gpt-4",
@@ -280,6 +290,7 @@ class CacheManager:
             ),
             ModelInfo(
                 id="claude-3-5-sonnet",
+                model_id="anthropic/claude-3-5-sonnet",
                 name="Claude 3.5 Sonnet",
                 provider="anthropic",
                 family="claude-3",
@@ -294,6 +305,7 @@ class CacheManager:
             ),
             ModelInfo(
                 id="claude-3-opus",
+                model_id="anthropic/claude-3-opus",
                 name="Claude 3 Opus",
                 provider="anthropic",
                 family="claude-3",
@@ -308,6 +320,7 @@ class CacheManager:
             ),
             ModelInfo(
                 id="claude-4-sonnet",
+                model_id="anthropic/claude-4-sonnet",
                 name="Claude 4 Sonnet",
                 provider="anthropic",
                 family="claude-4",
@@ -323,6 +336,7 @@ class CacheManager:
             ),
             ModelInfo(
                 id="gemini-2.0-pro",
+                model_id="google/gemini-2.0-pro",
                 name="Gemini 2.0 Pro",
                 provider="google",
                 family="gemini",
@@ -337,6 +351,7 @@ class CacheManager:
             ),
             ModelInfo(
                 id="gemini-2.0-flash",
+                model_id="google/gemini-2.0-flash",
                 name="Gemini 2.0 Flash",
                 provider="google",
                 family="gemini",
@@ -351,6 +366,7 @@ class CacheManager:
             ),
             ModelInfo(
                 id="llama-3.1-405b",
+                model_id="meta-llama/Llama-3.1-405B",
                 name="Llama 3.1 405B",
                 provider="meta",
                 family="llama-3.1",
@@ -365,6 +381,7 @@ class CacheManager:
             ),
             ModelInfo(
                 id="llama-3.1-70b",
+                model_id="meta-llama/Llama-3.1-70B",
                 name="Llama 3.1 70B",
                 provider="meta",
                 family="llama-3.1",
@@ -379,6 +396,7 @@ class CacheManager:
             ),
             ModelInfo(
                 id="llama-4-scout",
+                model_id="meta-llama/Llama-4-Scout",
                 name="Llama 4 Scout",
                 provider="meta",
                 family="llama-4",
@@ -394,6 +412,7 @@ class CacheManager:
             ),
             ModelInfo(
                 id="llama-4-maverick",
+                model_id="meta-llama/Llama-4-Maverick",
                 name="Llama 4 Maverick",
                 provider="meta",
                 family="llama-4",
@@ -409,6 +428,7 @@ class CacheManager:
             ),
             ModelInfo(
                 id="mistral-large-3",
+                model_id="mistralai/Mistral-Large-Instruct-24B",
                 name="Mistral Large 3",
                 provider="mistral",
                 family="mistral",
@@ -425,6 +445,7 @@ class CacheManager:
             ),
             ModelInfo(
                 id="mixtral-8x7b",
+                model_id="mistralai/Mixtral-8x7B-Instruct-v0.1",
                 name="Mixtral 8x7B",
                 provider="mistral",
                 family="mixtral",
@@ -442,6 +463,7 @@ class CacheManager:
             ),
             ModelInfo(
                 id="qwen3-397b-a17b",
+                model_id="Qwen/Qwen3-397B-A17B",
                 name="Qwen3 397B-A17B",
                 provider="alibaba",
                 family="qwen3",
@@ -458,6 +480,7 @@ class CacheManager:
             ),
             ModelInfo(
                 id="qwen2.5-72b",
+                model_id="Qwen/Qwen2.5-72B",
                 name="Qwen2.5 72B",
                 provider="alibaba",
                 family="qwen2.5",
@@ -540,6 +563,7 @@ class CacheManager:
         """Convert database row to ModelInfo."""
         return ModelInfo(
             id=row["id"],
+            model_id=row["model_id"],
             name=row["name"],
             provider=row["provider"],
             family=row["family"],

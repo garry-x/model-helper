@@ -95,6 +95,7 @@ def model_info(
 
         panel = Panel(
             f"[bold]Provider:[/bold] {model.provider}\n"
+            f"[bold]Model ID:[/bold] {model.model_id or 'N/A'}\n"
             f"[bold]Family:[/bold] {model.family or 'N/A'}\n"
             f"[bold]Total Params:[/bold] {model.total_params or 'N/A'}\n"
             f"[bold]Activated Params:[/bold] {model.activated_params or 'N/A'}\n"
@@ -242,7 +243,7 @@ def cache_status():
             f"[bold]Total Benchmarks:[/bold] {status.total_benchmarks}\n"
             f"[bold]Total Results:[/bold] {status.total_results}\n"
             f"[bold]Last Model Update:[/bold] {status.last_model_update or 'Never'}\n"
-            f"[bold]Cache Size:[/bold] {status.cache_size_mb:.2f} MB" if status.cache_size_mb else "N/A",
+            f"[bold]Cache Size:[/bold] {status.cache_size_mb:.2f} MB" if status.cache_size_mb else f"[bold]Cache Size:[/bold] N/A",
             title="Cache Status",
             border_style="green",
         )
