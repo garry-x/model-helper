@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Models - Model Helper{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1><i class="bi bi-collection text-primary me-2"></i>All Models</h1>
+    <form method="get" class="d-flex gap-2">
+        <select name="provider" class="form-select" style="width: auto;" onchange="this.form.submit()">
+            <option value="">All Providers</option>
+            <option value="openai" {% if provider == 'openai' %}selected{% endif %}>OpenAI</option>
+            <option value="anthropic" {% if provider == 'anthropic' %}selected{% endif %}>Anthropic</option>
+            <option value="google" {% if provider == 'google' %}selected{% endif %}>Google</option>
+            <option value="meta" {% if provider == 'meta' %}selected{% endif %}>Meta</option>
+            <option value="mistral" {% if provider == 'mistral' %}selected{% endif %}>Mistral</option>
+            <option value="alibaba" {% if provider == 'alibaba' %}selected{% endif %}>Alibaba</option>
+        </select>
+    </form>
+</div>
+
+<div class="table-responsive">
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>Model</th>
+                <th>Provider</th>
+                <th>Architecture</th>
+                <th>Context</th>
+                <th>Max Output</th>
+                <th>Input Price</th>
+                <th>Features</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for model in models %}
+            <tr>
+                <td>
+                    <strong>{{ model.name }}</strong><br>
+                    <small class="text-muted">{{ model.id }}</small>
+                </td>
+                <td><span class="badge-provider">{{ model.provider }}</span></td>
+                <td>{{ model.architecture.value|upper if model.architecture else '-' }}</td>
+                <td>{{ "{:,}".format(model.context_length) if model.context_length else '-' }}</td>
+                <td>{{ "{:,}".format(model.max_output_tokens) if model.max_output_tokens else '-' }}</td>
+                <td>{{ "$%.2f"|format(model.input_price_per_million) if model.input_price_per_million else '-' }}</td>
+                <td>
+                    {% if model.supports_vision %}<span class="badge bg-info me-1">Vision</span>{% endif %}
+                    {% if model.supports_function_calling %}<span class="badge bg-warning text-dark me-1">Functions</span>{% endif %}
+                    {% if model.supports_json_mode %}<span class="badge bg-secondary">JSON</span>{% endif %}
+                </td>
+                <td>
+                    <a href="/models/{{ model.id }}" class="btn btn-sm btn-outline-light">Details</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="8" class="text-center py-4">
+                    <p class="text-muted mb-2">No models found</p>
+                    <a href="/cache-update" class="btn btn-primary">Update Cache</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if page > 1 %}
+<nav>
+    <ul class="pagination">
+        <li class="page-item"><a class="page-link" href="?page={{ page - 1 }}{% if provider %}&provider={{ provider }}{% endif %}">Previous</a></li>
+        <li class="page-item"><a class="page-link" href="?page={{ page + 1 }}{% if provider %}&provider={{ provider }}{% endif %}">Next</a></li>
+    </ul>
+</nav>
+{% endif %}
+{% endblock %}

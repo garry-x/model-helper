@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block title %}{{ model.name }} - Model Helper{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/">Home</a></li>
+        <li class="breadcrumb-item"><a href="/models">Models</a></li>
+        <li class="breadcrumb-item active">{{ model.name }}</li>
+    </ol>
+</nav>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">{{ model.name }}</h4>
+                <span class="badge-provider">{{ model.provider }}</span>
+            </div>
+            <div class="card-body">
+                <h6 class="text-muted mb-3">Model ID: {{ model.id }}</h6>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <h5 class="border-bottom pb-2 mb-3">Architecture</h5>
+                        <p><strong>Type:</strong> {{ model.architecture.value|upper if model.architecture else 'N/A' }}</p>
+                        <p><strong>Total Parameters:</strong> {{ "{:,}".format(model.total_params) if model.total_params else 'N/A' }}</p>
+                        <p><strong>Activated Parameters:</strong> {{ "{:,}".format(model.activated_params) if model.activated_params else 'N/A' }}</p>
+                        <p><strong>Number of Experts:</strong> {{ model.num_experts if model.num_experts else 'N/A' }}</p>
+                        <p><strong>Attention Type:</strong> {{ model.attention_type if model.attention_type else 'N/A' }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <h5 class="border-bottom pb-2 mb-3">Limits</h5>
+                        <p><strong>Context Length:</strong> {{ "{:,}".format(model.context_length) if model.context_length else 'N/A' }} tokens</p>
+                        <p><strong>Max Output Tokens:</strong> {{ "{:,}".format(model.max_output_tokens) if model.max_output_tokens else 'N/A' }}</p>
+                        <p><strong>Training Tokens:</strong> {{ "{:,}".format(model.training_tokens) if model.training_tokens else 'N/A' }}</p>
+                    </div>
+                </div>
+
+                <div class="row mt-3">
+                    <div class="col-md-6">
+                        <h5 class="border-bottom pb-2 mb-3">Pricing (per 1M tokens)</h5>
+                        <p><strong>Input:</strong> ${{ "%.2f"|format(model.input_price_per_million) if model.input_price_per_million else 'N/A' }}</p>
+                        <p><strong>Output:</strong> ${{ "%.2f"|format(model.output_price_per_million) if model.output_price_per_million else 'N/A' }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <h5 class="border-bottom pb-2 mb-3">Capabilities</h5>
+                        <p>
+                            <strong>Function Calling:</strong>
+                            {% if model.supports_function_calling %}<span class="text-success"><i class="bi bi-check-circle"></i> Yes</span>{% else %}<span class="text-muted">No</span>{% endif %}
+                        </p>
+                        <p>
+                            <strong>Vision:</strong>
+                            {% if model.supports_vision %}<span class="text-success"><i class="bi bi-check-circle"></i> Yes</span>{% else %}<span class="text-muted">No</span>{% endif %}
+                        </p>
+                        <p>
+                            <strong>JSON Mode:</strong>
+                            {% if model.supports_json_mode %}<span class="text-success"><i class="bi bi-check-circle"></i> Yes</span>{% else %}<span class="text-muted">No</span>{% endif %}
+                        </p>
+                        <p>
+                            <strong>Streaming:</strong>
+                            {% if model.supports_streaming %}<span class="text-success"><i class="bi bi-check-circle"></i> Yes</span>{% else %}<span class="text-muted">No</span>{% endif %}
+                        </p>
+                    </div>
+                </div>
+
+                {% if model.family or model.license or model.huggingface_id %}
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <h5 class="border-bottom pb-2 mb-3">Additional Info</h5>
+                        {% if model.family %}<p><strong>Family:</strong> {{ model.family }}</p>{% endif %}
+                        {% if model.license %}<p><strong>License:</strong> {{ model.license }}</p>{% endif %}
+                        {% if model.huggingface_id %}<p><strong>HuggingFace ID:</strong> {{ model.huggingface_id }}</p>{% endif %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Cache Info</h5>
+            </div>
+            <div class="card-body">
+                <p><strong>Source:</strong> {{ model.source }}</p>
+                <p><strong>Cached At:</strong> {{ model.cached_at.strftime('%Y-%m-%d %H:%M') }}</p>
+            </div>
+        </div>
+
+        {% if results %}
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Benchmark Results</h5>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <tbody>
+                        {% for result in results %}
+                        <tr>
+                            <td>{{ result.benchmark_id }}</td>
+                            <td class="text-end">
+                                {% if result.score %}{{ "%.1f"|format(result.score) }}{% else %}N/A{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

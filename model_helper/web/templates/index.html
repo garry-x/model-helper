@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}Model Helper - LLM Model Lookup{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mb-5">
+    <div class="col-lg-8">
+        <div class="search-box text-center">
+            <h1 class="mb-4">Find Your Model</h1>
+            <form action="/search" method="get" class="d-flex gap-2">
+                <input type="text" name="q" class="form-control search-input" placeholder="Search models (e.g., GPT-4, Claude, Llama)..." required>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-search"></i>
+                </button>
+            </form>
+            <p class="text-muted mt-3 mb-0">Supports fuzzy search - try partial names like "gpt" or "claude"</p>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="stat-card">
+            <div class="stat-value">{{ status.total_models }}</div>
+            <div class="stat-label">Cached Models</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stat-card">
+            <div class="stat-value">{{ status.total_benchmarks }}</div>
+            <div class="stat-label">Benchmarks</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stat-card">
+            <div class="stat-value">{{ status.total_results }}</div>
+            <div class="stat-label">Results</div>
+        </div>
+    </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2><i class="bi bi-star text-warning me-2"></i>Featured Models</h2>
+    <a href="/models" class="btn btn-outline-light btn-sm">View All</a>
+</div>
+
+<div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+    {% for model in models %}
+    <div class="col">
+        <div class="card model-card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span class="badge-provider">{{ model.provider }}</span>
+                {% if model.architecture %}
+                <small class="text-muted">{{ model.architecture.value|upper }}</small>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <h5 class="card-title">{{ model.name }}</h5>
+                <p class="card-text">
+                    <small>
+                        {% if model.context_length %}
+                        <i class="bi bi-text-paragraph me-1"></i>Context: {{ "{:,}".format(model.context_length) }} tokens<br>
+                        {% endif %}
+                        {% if model.max_output_tokens %}
+                        <i class="bi bi-chat-dots me-1"></i>Max Output: {{ "{:,}".format(model.max_output_tokens) }} tokens<br>
+                        {% endif %}
+                        {% if model.input_price_per_million %}
+                        <i class="bi bi-currency-dollar me-1"></i>${{ "%.2f"|format(model.input_price_per_million) }}/M input
+                        {% endif %}
+                    </small>
+                </p>
+            </div>
+            <div class="card-footer bg-transparent">
+                <a href="/models/{{ model.id }}" class="btn btn-outline-light btn-sm w-100">View Details</a>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="col-12">
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>
+            No models in cache yet. Run <code>model-helper cache update</code> to fetch data.
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="row mt-5">
+    <div class="col-12">
+        <h3 class="mb-4">Quick Commands</h3>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card">
+            <div class="card-body">
+                <h5><i class="bi bi-search text-primary me-2"></i>Search</h5>
+                <code class="d-block mt-2">model-helper search gpt</code>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card">
+            <div class="card-body">
+                <h5><i class="bi bi-cloud-download text-success me-2"></i>Update Cache</h5>
+                <code class="d-block mt-2">model-helper cache update</code>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card">
+            <div class="card-body">
+                <h5><i class="bi bi-globe text-info me-2"></i>Web Interface</h5>
+                <code class="d-block mt-2">model-helper web --port 8000</code>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

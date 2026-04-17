@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Benchmarks - Model Helper{% endblock %}
+
+{% block content %}
+<h1 class="mb-4"><i class="bi bi-bar-chart text-primary me-2"></i>Benchmarks</h1>
+
+<div class="row">
+    {% for benchmark in benchmarks %}
+    <div class="col-md-6 col-lg-4 mb-4">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span class="badge bg-primary">{{ benchmark.category }}</span>
+            </div>
+            <div class="card-body">
+                <h5 class="card-title">{{ benchmark.name }}</h5>
+                <p class="card-text">{{ benchmark.description }}</p>
+            </div>
+            <div class="card-footer bg-transparent">
+                <a href="{{ benchmark.source_url }}" target="_blank" class="btn btn-outline-light btn-sm me-2">
+                    <i class="bi bi-box-arrow-up-right me-1"></i>Source
+                </a>
+                {% if benchmark.dataset_url %}
+                <a href="{{ benchmark.dataset_url }}" target="_blank" class="btn btn-outline-light btn-sm">
+                    <i class="bi bi-database me-1"></i>Dataset
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="col-12">
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>
+            No benchmarks available. Run <code>model-helper cache update</code> to fetch benchmark data.
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="card mt-4">
+    <div class="card-header">
+        <h5 class="mb-0">About Benchmarks</h5>
+    </div>
+    <div class="card-body">
+        <p class="mb-2">This system tracks the following major LLM benchmarks:</p>
+        <ul>
+            <li><strong>MMLU</strong> - Massive Multitask Language Understanding (57 subjects)</li>
+            <li><strong>HellaSwag</strong> - Commonsense inference for event ordering</li>
+            <li><strong>ARC</strong> - AI2 Reasoning Challenge (grade-school science)</li>
+            <li><strong>TruthfulQA</strong> - Truthfulness evaluation against misinformation</li>
+            <li><strong>Winogrande</strong> - Coreference resolution at scale</li>
+            <li><strong>GSM8K</strong> - Grade School Math problems</li>
+            <li><strong>HumanEval</strong> - Code generation evaluation</li>
+            <li><strong>Chatbot Arena</strong> - Human preference ranking via blind comparisons</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}

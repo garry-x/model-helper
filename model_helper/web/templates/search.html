@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Search Results - Model Helper{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/">Home</a></li>
+        <li class="breadcrumb-item active">Search: {{ query }}</li>
+    </ol>
+</nav>
+
+<h1 class="mb-4">
+    <i class="bi bi-search text-primary me-2"></i>
+    Search Results for "{{ query }}"
+    <small class="text-muted">({{ results|length }} found)</small>
+</h1>
+
+<div class="table-responsive">
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>Model</th>
+                <th>Provider</th>
+                <th>Context</th>
+                <th>Match Score</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for result in results %}
+            <tr>
+                <td>
+                    <strong>{{ result.model.name }}</strong><br>
+                    <small class="text-muted">Matched on: {{ result.matched_on }}</small>
+                </td>
+                <td><span class="badge-provider">{{ result.model.provider }}</span></td>
+                <td>{{ "{:,}".format(result.model.context_length) if result.model.context_length else '-' }}</td>
+                <td>
+                    <div class="progress" style="height: 20px; width: 100px;">
+                        <div class="progress-bar" role="progressbar" style="width: {{ result.score }}%">
+                            {{ "%.0f"|format(result.score) }}
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <a href="/models/{{ result.model.id }}" class="btn btn-sm btn-outline-light">View</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="5" class="text-center py-4">
+                    <p class="text-muted mb-2">No models found matching '{{ query }}'</p>
+                    <p class="text-muted">Try a different search term or update the cache</p>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="mt-4">
+    <a href="/" class="btn btn-outline-light">
+        <i class="bi bi-arrow-left me-2"></i>Back to Home
+    </a>
+</div>
+{% endblock %}
