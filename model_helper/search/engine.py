@@ -38,6 +38,8 @@ class SearchEngine:
                 matched_on = "id" if model.id.lower() == query.lower() else "name"
                 if model.name.lower() == query.lower():
                     matched_on = "name"
+                if model.model_id and model.model_id.lower() == query.lower():
+                    matched_on = "model_id"
                 results.append(SearchResult(model=model, score=score, matched_on=matched_on))
 
         return results

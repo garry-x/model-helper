@@ -7,6 +7,7 @@ from pathlib import Path
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS models (
     id TEXT PRIMARY KEY,
+    model_id TEXT,
     name TEXT NOT NULL,
     provider TEXT NOT NULL,
     family TEXT,
@@ -70,6 +71,11 @@ CREATE INDEX IF NOT EXISTS idx_results_benchmark ON benchmark_results(benchmark_
 
 DB_PATH = Path.home() / ".model_helper" / "cache.db"
 
+# Schema migrations: (column_name, column_definition)
+SCHEMA_MIGRATIONS: list[tuple[str, str]] = [
+    ("model_id", "TEXT"),
+]
+
 
 async def init_db(db_path: Path | None = None) -> aiosqlite.Connection:
     """Initialize database with schema."""
@@ -78,6 +84,15 @@ async def init_db(db_path: Path | None = None) -> aiosqlite.Connection:
 
     conn = await aiosqlite.connect(path)
     await conn.executescript(SCHEMA)
+
+    # Apply migrations for existing tables
+    async with conn.execute("PRAGMA table_info(models)") as cursor:
+        columns = [row[1] for row in await cursor.fetchall()]
+
+    for col_name, col_type in SCHEMA_MIGRATIONS:
+        if col_name not in columns:
+            await conn.execute(f"ALTER TABLE models ADD COLUMN {col_name} {col_type}")
+
     await conn.commit()
     return conn
 

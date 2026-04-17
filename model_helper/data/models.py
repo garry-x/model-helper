@@ -29,7 +29,8 @@ class Modality(str, Enum):
 class ModelInfo(BaseModel):
     """Comprehensive model information."""
 
-    id: str = Field(..., description="Unique model identifier")
+    id: str = Field(..., description="Unique model identifier (internal)")
+    model_id: Optional[str] = Field(None, description="Unique detailed model ID (HuggingFace-style, e.g., 'Qwen/Qwen3.6-35B-A3B-FP8')")
     name: str = Field(..., description="Display name")
     provider: str = Field(..., description="Provider name (e.g., openai, anthropic)")
     family: Optional[str] = Field(None, description="Model family (e.g., gpt-4, claude-4)")
