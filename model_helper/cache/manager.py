@@ -77,16 +77,16 @@ class CacheManager:
             )
             await db.commit()
 
-    async def get_model(self, model_id: str) -> Optional[ModelInfo]:
-        """Get a model by ID or name (fuzzy search)."""
+    async def get_model(self, identifier: str) -> Optional[ModelInfo]:
+        """Get a model by exact ID match first, then fuzzy name search."""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT * FROM models WHERE id = ?", (model_id,)) as cursor:
+            async with db.execute("SELECT * FROM models WHERE id = ?", (identifier,)) as cursor:
                 row = await cursor.fetchone()
                 if row:
                     return self._row_to_model(row)
             async with db.execute(
-                "SELECT * FROM models WHERE name LIKE ? LIMIT 1", (f"%{model_id}%",)
+                "SELECT * FROM models WHERE name LIKE ? LIMIT 1", (f"%{identifier}%",)
             ) as cursor:
                 row = await cursor.fetchone()
                 if row:

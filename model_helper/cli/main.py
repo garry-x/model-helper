@@ -1,7 +1,6 @@
 """CLI entry point using Typer."""
 
 import asyncio
-from pathlib import Path
 from typing import Optional
 
 import typer
@@ -11,7 +10,6 @@ from rich.panel import Panel
 from rich import print as rprint
 
 from model_helper.cache.manager import CacheManager
-from model_helper.data.models import BenchmarkInfo
 from model_helper.data.models import BenchmarkInfo, ModelInfo
 from model_helper.scrapers.base import (
     ChatbotArenaScraper,
@@ -93,6 +91,15 @@ def model_info(
 
         results = await cache.get_results_for_model(model.id)
 
+        def _price(p: float | None) -> str:
+            return f"${p}/M" if p is not None else "N/A"
+
+        def _ctx(c: int | None) -> str:
+            return f"{c:,}" if c is not None else "N/A"
+
+        def _yn(b: bool) -> str:
+            return "✓" if b else "✗"
+
         panel = Panel(
             f"[bold]Provider:[/bold] {model.provider}\n"
             f"[bold]Model ID:[/bold] {model.model_id or 'N/A'}\n"
@@ -100,13 +107,13 @@ def model_info(
             f"[bold]Total Params:[/bold] {model.total_params or 'N/A'}\n"
             f"[bold]Activated Params:[/bold] {model.activated_params or 'N/A'}\n"
             f"[bold]Architecture:[/bold] {model.architecture.value if model.architecture else 'N/A'}\n"
-            f"[bold]Context Length:[/bold] {model.context_length or 'N/A'}\n"
+            f"[bold]Context Length:[/bold] {_ctx(model.context_length)}\n"
             f"[bold]Max Output:[/bold] {model.max_output_tokens or 'N/A'}\n"
-            f"[bold]Input Price:[/bold] ${model.input_price_per_million or 'N/A'}/M\n"
-            f"[bold]Output Price:[/bold] ${model.output_price_per_million or 'N/A'}/M\n"
-            f"[bold]Function Calling:[/bold] {'✓' if model.supports_function_calling else '✗'}\n"
-            f"[bold]Vision:[/bold] {'✓' if model.supports_vision else '✗'}\n"
-            f"[bold]JSON Mode:[/bold] {'✓' if model.supports_json_mode else '✗'}\n"
+            f"[bold]Input Price:[/bold] {_price(model.input_price_per_million)}\n"
+            f"[bold]Output Price:[/bold] {_price(model.output_price_per_million)}\n"
+            f"[bold]Function Calling:[/bold] {_yn(model.supports_function_calling)}\n"
+            f"[bold]Vision:[/bold] {_yn(model.supports_vision)}\n"
+            f"[bold]JSON Mode:[/bold] {_yn(model.supports_json_mode)}\n"
             f"[bold]License:[/bold] {model.license or 'N/A'}\n"
             f"[bold]Source:[/bold] {model.source}",
             title=f"Model: {model.name}",
@@ -173,10 +180,10 @@ def benchmark_list():
             return
 
         table = Table(title=f"Available Benchmarks ({len(benchmarks)})")
-        table.add_column("ID", style="cyan")
-        table.add_column("Name", style="green")
+        table.add_column("ID", style="cyan", no_wrap=True)
+        table.add_column("Name", style="green", no_wrap=True)
         table.add_column("Category", style="yellow")
-        table.add_column("Source URL", style="blue", no_wrap=True)
+        table.add_column("Source URL", style="blue", max_width=60)
 
         for b in benchmarks:
             table.add_row(b.id, b.name, b.category, b.source_url)
@@ -243,7 +250,7 @@ def cache_status():
             f"[bold]Total Benchmarks:[/bold] {status.total_benchmarks}\n"
             f"[bold]Total Results:[/bold] {status.total_results}\n"
             f"[bold]Last Model Update:[/bold] {status.last_model_update or 'Never'}\n"
-            f"[bold]Cache Size:[/bold] {status.cache_size_mb:.2f} MB" if status.cache_size_mb else f"[bold]Cache Size:[/bold] N/A",
+            f"[bold]Cache Size:[/bold] {f'{status.cache_size_mb:.2f} MB' if status.cache_size_mb else 'N/A'}",
             title="Cache Status",
             border_style="green",
         )
@@ -304,12 +311,15 @@ def cache_update(
 
 
 @app.command()
-def cache_clear():
+def cache_clear(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+):
     """Clear all cached data."""
-    confirm = typer.confirm("Are you sure you want to clear all cached data?")
-    if not confirm:
-        console.print("[yellow]Cancelled[/yellow]")
-        return
+    if not yes:
+        confirm = typer.confirm("Are you sure you want to clear all cached data?")
+        if not confirm:
+            console.print("[yellow]Cancelled[/yellow]")
+            raise typer.Exit()
 
     async def _clear():
         cache = get_cache()
@@ -341,9 +351,6 @@ def web(
     """Start the web interface."""
     import uvicorn
 
-    from model_helper.web.app import create_app
-
-    app = create_app()
     console.print(f"[green]Starting web server at http://{host}:{port}[/green]")
     uvicorn.run(
         "model_helper.web.app:create_app",

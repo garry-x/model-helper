@@ -35,11 +35,11 @@ class SearchEngine:
         for match_id, score, _ in matches:
             if score >= self.threshold:
                 model = next(m for m_id, m in model_names if m_id == match_id)
-                matched_on = "id" if model.id.lower() == query.lower() else "name"
-                if model.name.lower() == query.lower():
-                    matched_on = "name"
+                matched_on = "id"
                 if model.model_id and model.model_id.lower() == query.lower():
                     matched_on = "model_id"
+                elif model.name.lower() == query.lower():
+                    matched_on = "name"
                 results.append(SearchResult(model=model, score=score, matched_on=matched_on))
 
         return results
