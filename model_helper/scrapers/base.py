@@ -197,6 +197,183 @@ class ChatbotArenaScraper(BaseScraper):
         return []
 
 
+class HuggingFaceScraper(BaseScraper):
+    """Scraper for Hugging Face Hub model data."""
+
+    BASE_URL = "https://huggingface.co/api/models"
+    MAX_PAGES = 5
+    PAGE_LIMIT = 100
+
+    def __init__(self, provider_authors: dict[str, list[str]] | None = None, timeout: int = 30):
+        super().__init__(timeout=timeout)
+        # {provider: [hf_author_names]} — which HF authors to search for each provider
+        self.provider_authors = provider_authors or {}
+
+    async def fetch_models(self) -> list[ModelInfo]:
+        """Fetch models from Hugging Face Hub.
+
+        If provider_authors is set, searches by those specific authors.
+        Otherwise fetches the most-downloaded text-generation models.
+        """
+        models: list[ModelInfo] = []
+
+        if self.provider_authors:
+            # Search by specific authors for each configured provider
+            all_authors: set[str] = set()
+            provider_for_author: dict[str, str] = {}
+            for provider, authors in self.provider_authors.items():
+                for author in authors:
+                    all_authors.add(author.lower())
+                    provider_for_author[author.lower()] = provider.lower()
+
+            for author in all_authors:
+                page_models = await self._fetch_by_author(author)
+                for m in page_models:
+                    # Normalize provider from author mapping
+                    m.provider = provider_for_author.get(author, m.provider)
+                    models.append(m)
+        else:
+            # Fetch top downloaded text-generation models
+            models = await self._fetch_top_models()
+
+        return models
+
+    async def _fetch_by_author(self, author: str) -> list[ModelInfo]:
+        """Fetch models by a specific HF author (org/user)."""
+        models: list[ModelInfo] = []
+        cursor = None
+        pages = 0
+
+        while pages < self.MAX_PAGES:
+            params: dict[str, str | int] = {
+                "author": author,
+                "filter": "text-generation",
+                "sort": "downloads",
+                "direction": "-1",
+                "limit": self.PAGE_LIMIT,
+                "full": "true",
+            }
+            data, next_cursor = await self._fetch_page(params, cursor)
+            for item in data:
+                if isinstance(item, dict) and item.get("id"):
+                    models.append(self._parse_model(item))
+
+            pages += 1
+            if not next_cursor or len(data) < self.PAGE_LIMIT:
+                break
+            cursor = next_cursor
+
+        return models
+
+    async def _fetch_top_models(self) -> list[ModelInfo]:
+        """Fetch the most-downloaded text-generation models."""
+        models: list[ModelInfo] = []
+        cursor = None
+        pages = 0
+
+        while pages < self.MAX_PAGES:
+            params: dict[str, str | int] = {
+                "filter": "text-generation",
+                "sort": "downloads",
+                "direction": "-1",
+                "limit": self.PAGE_LIMIT,
+                "full": "true",
+            }
+            data, next_cursor = await self._fetch_page(params, cursor)
+            for item in data:
+                if isinstance(item, dict) and item.get("id"):
+                    models.append(self._parse_model(item))
+
+            pages += 1
+            if not next_cursor or len(data) < self.PAGE_LIMIT:
+                break
+            cursor = next_cursor
+
+        return models
+
+    async def _fetch_page(self, params: dict, cursor: str | None = None) -> tuple[list, str | None]:
+        """Fetch one page of results. Returns (data, next_cursor)."""
+        url = self.BASE_URL
+        response = await self.fetch(url + "?" + "&".join(f"{k}={v}" for k, v in params.items()))
+        data = response.json()
+        if not isinstance(data, list):
+            data = []
+        # HF API may return cursor in headers or we derive it for pagination
+        next_cursor = None
+        link = response.headers.get("link") or response.headers.get("Link")
+        if link:
+            import re
+            match = re.search(r'cursor=([^&>]+)', link)
+            if match:
+                next_cursor = match.group(1)
+        return data, next_cursor
+
+    def _parse_model(self, item: dict) -> ModelInfo:
+        """Map a Hugging Face model dict to ModelInfo."""
+        model_id = item.get("id", "")
+        author = item.get("author", "unknown")
+        config = item.get("config") or {}
+
+        # Total parameters from safetensors (largest precision)
+        total_params = None
+        st = item.get("safetensors") or {}
+        st_params = st.get("parameters") or {}
+        if st_params:
+            # st_params is dict like {"BF16": 8e9, "F32": 16e9}
+            total_params = int(max(st_params.values()))
+
+        # Architecture
+        arch = None
+        raw_archs = config.get("architectures") or []
+        if raw_archs:
+            arch_name = raw_archs[0].lower()
+            if "moe" in arch_name or "mixtral" in arch_name:
+                arch = "moe"
+            elif "dense" in arch_name:
+                arch = "dense"
+
+        # Context length
+        ctx = config.get("max_position_embeddings")
+
+        # Capabilities from tags
+        tags = [t.lower() for t in item.get("tags", [])]
+        supports_vision = any(t in tags for t in ("image-to-text", "image-text-to-text", "visual", "vision"))
+        supports_function_calling = any(t in tags for t in ("function-calling", "tool-use", "tool_calling"))
+
+        card = item.get("cardData") or {}
+
+        # Derive family from tags or model_name
+        family = None
+        model_type = config.get("model_type", "").lower()
+        if model_type:
+            family = model_type
+
+        # Name: take the last segment of the model_id
+        name = model_id.split("/")[-1] if "/" in model_id else model_id
+
+        return ModelInfo(
+            id=model_id,
+            model_id=model_id,
+            name=name,
+            provider=author,
+            family=family,
+            total_params=total_params,
+            architecture=arch,
+            context_length=ctx,
+            supports_vision=supports_vision,
+            supports_function_calling=supports_function_calling,
+            license=str(card.get("license", "")) if card.get("license") else None,
+            huggingface_id=model_id,
+            source="huggingface",
+        )
+
+    async def fetch_benchmarks(self) -> list[BenchmarkInfo]:
+        return []
+
+    async def fetch_results(self, model_ids: list[str] | None = None) -> list[BenchmarkResult]:
+        return []
+
+
 class OpenLLMLeaderboardScraper(BaseScraper):
     """Scraper for HuggingFace Open LLM Leaderboard."""
 

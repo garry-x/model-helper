@@ -24,18 +24,28 @@ def _config_path() -> Path:
     return p
 
 
-def _load_defaults() -> tuple[list[str], dict[str, list[str]]]:
-    """Load default providers and aliases from the shipped config file."""
+def _load_defaults() -> tuple[list[str], dict[str, list[str]], dict[str, str]]:
+    """Load default providers, aliases and hf_authors from the shipped config file.
+
+    Returns:
+        (providers, aliases, author_map)
+        author_map: {hf_author: provider} — reverse mapping for normalizing HF authors.
+    """
     path = _defaults_path()
     if not path.exists():
-        return [], {}
+        return [], {}, {}
     try:
         data = json.loads(path.read_text())
         providers = [p.lower() for p in data.get("providers", [])]
         aliases = {k.lower(): [a.lower() for a in v] for k, v in data.get("aliases", {}).items()}
-        return providers, aliases
+        # Build reverse map: HF author name -> provider name
+        author_map: dict[str, str] = {}
+        for provider, authors in data.get("hf_authors", {}).items():
+            for author in authors:
+                author_map[author.lower()] = provider.lower()
+        return providers, aliases, author_map
     except (json.JSONDecodeError, ValueError):
-        return [], {}
+        return [], {}, {}
 
 
 def get_providers() -> list[str]:
@@ -52,6 +62,32 @@ def get_providers() -> list[str]:
     except (json.JSONDecodeError, ValueError):
         pass
     return _load_defaults()[0]
+
+
+def get_hf_author_map() -> dict[str, str]:
+    """Return {hf_author_name: provider} mapping from default_providers.json.
+
+    Used by HuggingFaceScraper to normalize HF author names to our provider names.
+    E.g. {'meta-llama': 'meta', 'mistralai': 'mistral', 'deepseek-ai': 'deepseek'}
+    """
+    return _load_defaults()[2]
+
+
+def get_hf_provider_authors() -> dict[str, list[str]]:
+    """Return {provider: [hf_author_names]} from default_providers.json.
+
+    Used to tell HuggingFaceScraper which HF authors to search for.
+    Only returns entries for currently configured providers.
+    """
+    path = _defaults_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+        raw = data.get("hf_authors", {})
+        return {k.lower(): [a.lower() for a in v] for k, v in raw.items()}
+    except (json.JSONDecodeError, ValueError):
+        return {}
 
 
 def save_providers(providers: list[str]) -> None:
@@ -88,7 +124,7 @@ def resolve_providers(providers: list[str]) -> list[str]:
     E.g. ['alibaba'] -> ['alibaba', 'dashscope']
          ['bytedance'] -> ['bytedance', 'volcengine']
     """
-    _, alias_map = _load_defaults()
+    _, alias_map, _ = _load_defaults()
     result = list(providers)
     for p in providers:
         for alias in alias_map.get(p, []):

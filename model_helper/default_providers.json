@@ -15,5 +15,18 @@
   "aliases": {
     "alibaba": ["dashscope"],
     "bytedance": ["volcengine"]
+  },
+  "hf_authors": {
+    "openai": ["openai"],
+    "anthropic": ["anthropic"],
+    "google": ["google"],
+    "meta": ["meta-llama", "facebook"],
+    "mistral": ["mistralai"],
+    "deepseek": ["deepseek-ai"],
+    "xai": ["xai-org"],
+    "moonshot": ["moonshot-ai"],
+    "minimax": ["MiniMax-ai"],
+    "alibaba": ["alibaba", "Qwen"],
+    "bytedance": ["bytedance"]
   }
 }

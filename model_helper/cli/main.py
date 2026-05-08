@@ -14,8 +14,7 @@ from model_helper.cache.manager import CacheManager
 from model_helper.data.models import BenchmarkInfo, ModelInfo
 from model_helper.scrapers.base import (
     ChatbotArenaScraper,
-    LiteLLMScraper,
-    ModelDBScraper,
+    HuggingFaceScraper,
     OpenLLMLeaderboardScraper,
 )
 from model_helper.search.engine import SearchEngine
@@ -277,13 +276,14 @@ def cache_status():
 
 @app.command()
 def cache_update(
-    source: Optional[str] = typer.Option(None, "--source", "-s", help="Update specific source (litellm, modeldb, benchmarks)"),
+    source: Optional[str] = typer.Option(None, "--source", "-s", help="Update specific source (huggingface, benchmarks)"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed progress"),
 ):
     """Update cache with latest data from online sources.
 
-    If providers are configured via 'provider-add', only models from those
-    providers will be saved. Otherwise all models are saved.
+    Fetches model data from Hugging Face Hub. If providers are configured
+    via 'provider-add', only models from those providers are fetched.
+    Otherwise the most-downloaded text-generation models are fetched.
     """
     async def _update():
         cache = get_cache()
@@ -294,33 +294,31 @@ def cache_update(
         if providers:
             console.print(f"[dim]Configured providers: {', '.join(providers)}[/dim]")
 
-        sources = [source] if source else ["litellm", "modeldb", "benchmarks"]
+        sources = [source] if source else ["huggingface", "benchmarks"]
 
         for src in sources:
             console.print(f"[cyan]Updating from {src}...[/cyan]")
 
             try:
-                if src == "litellm":
-                    async with LiteLLMScraper() as scraper:
-                        models = await scraper.fetch_models()
-                        if active_providers:
-                            models = [m for m in models if m.provider.lower() in active_providers]
-                        for model in models:
-                            await cache.save_model(model)
-                        msg = f"✓ Added {len(models)} models from LiteLLM"
-                        if active_providers:
-                            msg += " (filtered by configured providers)"
-                        console.print(f"[green]{msg}[/green]")
+                if src == "huggingface":
+                    # Build provider->authors mapping for configured providers
+                    provider_authors = {}
+                    if providers:
+                        all_hf = config.get_hf_provider_authors()
+                        for p in providers:
+                            if p in all_hf:
+                                provider_authors[p] = all_hf[p]
 
-                elif src == "modeldb":
-                    async with ModelDBScraper() as scraper:
+                    async with HuggingFaceScraper(provider_authors=provider_authors) as scraper:
                         models = await scraper.fetch_models()
                         if active_providers:
+                            # Additional safety filter: only keep models whose provider
+                            # is in the configured set (after HF author normalization)
                             models = [m for m in models if m.provider.lower() in active_providers]
                         for model in models:
                             await cache.save_model(model)
-                        msg = f"✓ Added {len(models)} models from ModelDB"
-                        if active_providers:
+                        msg = f"✓ Added {len(models)} models from HuggingFace"
+                        if providers:
                             msg += " (filtered by configured providers)"
                         console.print(f"[green]{msg}[/green]")
 
