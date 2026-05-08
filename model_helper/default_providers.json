@@ -1,0 +1,19 @@
+{
+  "providers": [
+    "openai",
+    "anthropic",
+    "google",
+    "meta",
+    "mistral",
+    "deepseek",
+    "xai",
+    "moonshot",
+    "minimax",
+    "alibaba",
+    "bytedance"
+  ],
+  "aliases": {
+    "alibaba": ["dashscope"],
+    "bytedance": ["volcengine"]
+  }
+}

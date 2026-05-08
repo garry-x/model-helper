@@ -9,6 +9,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich import print as rprint
 
+from model_helper import config
 from model_helper.cache.manager import CacheManager
 from model_helper.data.models import BenchmarkInfo, ModelInfo
 from model_helper.scrapers.base import (
@@ -50,7 +51,10 @@ def search(
     async def _search():
         cache = get_cache()
         await cache.init()
-        models = await cache.list_models(limit=500)
+        active_providers = config.get_providers() or None
+        if active_providers:
+            active_providers = config.resolve_providers(active_providers)
+        models = await cache.list_models(providers=active_providers, limit=500)
         search_eng = get_search()
         search_eng.threshold = threshold
         results = search_eng.search(query, models, limit)
@@ -141,18 +145,30 @@ def model_info(
 def list_models(
     provider: Optional[str] = typer.Option(None, "--provider", "-p", help="Filter by provider"),
     limit: int = typer.Option(50, "--limit", "-n", help="Number of models to show"),
+    all: bool = typer.Option(False, "--all", "-a", help="Show all models regardless of configured providers"),
 ):
-    """List all cached models."""
+    """List cached models (defaults to configured providers if set)."""
     async def _list():
         cache = get_cache()
         await cache.init()
-        models = await cache.list_models(provider=provider, limit=limit)
+
+        active_providers = None if all else (config.get_providers() or None)
+        if provider:
+            active_providers = [provider]
+        elif active_providers:
+            active_providers = config.resolve_providers(active_providers)
+
+        models = await cache.list_models(providers=active_providers, limit=limit)
 
         if not models:
             console.print("[yellow]No models in cache. Run 'cache update' first.[/yellow]")
             return
 
-        table = Table(title=f"Cached Models ({len(models)})")
+        title = f"Cached Models ({len(models)})"
+        if active_providers:
+            title += f" [providers: {', '.join(active_providers)}]"
+
+        table = Table(title=title)
         table.add_column("Name", style="cyan")
         table.add_column("Provider", style="green")
         table.add_column("Context", style="magenta")
@@ -264,10 +280,19 @@ def cache_update(
     source: Optional[str] = typer.Option(None, "--source", "-s", help="Update specific source (litellm, modeldb, benchmarks)"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed progress"),
 ):
-    """Update cache with latest data from online sources."""
+    """Update cache with latest data from online sources.
+
+    If providers are configured via 'provider-add', only models from those
+    providers will be saved. Otherwise all models are saved.
+    """
     async def _update():
         cache = get_cache()
         await cache.init()
+        providers = config.get_providers()
+        active_providers = config.resolve_providers(providers) if providers else []
+
+        if providers:
+            console.print(f"[dim]Configured providers: {', '.join(providers)}[/dim]")
 
         sources = [source] if source else ["litellm", "modeldb", "benchmarks"]
 
@@ -278,16 +303,26 @@ def cache_update(
                 if src == "litellm":
                     async with LiteLLMScraper() as scraper:
                         models = await scraper.fetch_models()
+                        if active_providers:
+                            models = [m for m in models if m.provider.lower() in active_providers]
                         for model in models:
                             await cache.save_model(model)
-                        console.print(f"[green]✓ Added {len(models)} models from LiteLLM[/green]")
+                        msg = f"✓ Added {len(models)} models from LiteLLM"
+                        if active_providers:
+                            msg += " (filtered by configured providers)"
+                        console.print(f"[green]{msg}[/green]")
 
                 elif src == "modeldb":
                     async with ModelDBScraper() as scraper:
                         models = await scraper.fetch_models()
+                        if active_providers:
+                            models = [m for m in models if m.provider.lower() in active_providers]
                         for model in models:
                             await cache.save_model(model)
-                        console.print(f"[green]✓ Added {len(models)} models from ModelDB[/green]")
+                        msg = f"✓ Added {len(models)} models from ModelDB"
+                        if active_providers:
+                            msg += " (filtered by configured providers)"
+                        console.print(f"[green]{msg}[/green]")
 
                 elif src == "benchmarks":
                     all_benchmarks = []
@@ -340,6 +375,57 @@ def cache_seed():
         console.print("[green]Sample data seeded successfully![/green]")
 
     asyncio.run(_seed())
+
+
+@app.command()
+def provider_add(
+    name: str = typer.Argument(..., help="Provider name to add (e.g. openai, anthropic)"),
+):
+    """Add a provider to the configured list.
+
+    Once providers are configured, cache-update will only fetch models
+    from these providers, and list-models will only show them.
+    """
+    if config.add_provider(name):
+        console.print(f"[green]✓ Added provider '{name.lower()}'[/green]")
+    else:
+        console.print(f"[yellow]Provider '{name.lower()}' is already configured[/yellow]")
+
+
+@app.command()
+def provider_remove(
+    name: str = typer.Argument(..., help="Provider name to remove"),
+):
+    """Remove a provider from the configured list."""
+    if config.remove_provider(name):
+        console.print(f"[green]✓ Removed provider '{name.lower()}'[/green]")
+    else:
+        console.print(f"[yellow]Provider '{name.lower()}' is not in the configured list[/yellow]")
+
+
+@app.command()
+def provider_list():
+    """List all configured providers."""
+    providers = config.get_providers()
+    is_default = not config._config_path().exists()
+
+    if not providers:
+        console.print("[dim]No providers configured. All providers will be used.[/dim]")
+        console.print("Use 'model-helper provider-add <name>' to add providers.")
+        return
+
+    title = f"Configured Providers ({len(providers)})"
+    if is_default:
+        title += " [dim]— using defaults[/dim]"
+    table = Table(title=title)
+    table.add_column("Provider", style="green")
+    for p in providers:
+        table.add_row(p)
+
+    if is_default:
+        console.print("[dim]Defaults are active because no config file exists.[/dim]")
+        console.print("[dim]Add or remove providers to create a custom config.[/dim]")
+    console.print(table)
 
 
 @app.command()

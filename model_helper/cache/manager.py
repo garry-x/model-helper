@@ -98,13 +98,24 @@ class CacheManager:
         provider: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        providers: Optional[list[str]] = None,
     ) -> list[ModelInfo]:
-        """List models with optional filtering."""
+        """List models with optional filtering.
+
+        Args:
+            provider: Single provider filter (exact match).
+            providers: Multiple provider filter (WHERE provider IN (...)).
+                       Takes precedence over `provider` if both are given.
+        """
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             query = "SELECT * FROM models"
-            params = []
-            if provider:
+            params: list = []
+            if providers:
+                placeholders = ",".join("?" for _ in providers)
+                query += f" WHERE provider IN ({placeholders})"
+                params.extend(providers)
+            elif provider:
                 query += " WHERE provider = ?"
                 params.append(provider)
             query += " ORDER BY name LIMIT ? OFFSET ?"

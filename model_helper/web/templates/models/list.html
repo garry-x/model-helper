@@ -8,12 +8,9 @@
     <form method="get" class="d-flex gap-2">
         <select name="provider" class="form-select" style="width: auto;" onchange="this.form.submit()">
             <option value="">All Providers</option>
-            <option value="openai" {% if provider == 'openai' %}selected{% endif %}>OpenAI</option>
-            <option value="anthropic" {% if provider == 'anthropic' %}selected{% endif %}>Anthropic</option>
-            <option value="google" {% if provider == 'google' %}selected{% endif %}>Google</option>
-            <option value="meta" {% if provider == 'meta' %}selected{% endif %}>Meta</option>
-            <option value="mistral" {% if provider == 'mistral' %}selected{% endif %}>Mistral</option>
-            <option value="alibaba" {% if provider == 'alibaba' %}selected{% endif %}>Alibaba</option>
+            {% for cp in configured_providers %}
+            <option value="{{ cp }}" {% if provider == cp %}selected{% endif %}>{{ cp | capitalize }}</option>
+            {% endfor %}
         </select>
     </form>
 </div>
