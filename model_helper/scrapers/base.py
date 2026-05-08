@@ -143,7 +143,7 @@ class ModelDBScraper(BaseScraper):
             model = ModelInfo(
                 id=model_data.get("model_id", ""),
                 name=model_data.get("model_id", "").replace("_", " ").title(),
-                provider=model_data.get("provider", "unknown"),
+                provider=model_data.get("provider_id") or model_data.get("provider_name") or "unknown",
                 context_length=model_data.get("max_input_tokens"),
                 max_output_tokens=model_data.get("max_tokens"),
                 supports_function_calling=model_data.get("supports_function_calling", False),
