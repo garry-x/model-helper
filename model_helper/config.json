@@ -28,5 +28,8 @@
     "minimax": ["MiniMax-ai"],
     "alibaba": ["alibaba", "Qwen"],
     "bytedance": ["bytedance"]
-  }
+  },
+  "hf_mirrors": [
+    "https://hf-mirror.com"
+  ]
 }

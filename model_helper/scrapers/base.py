@@ -198,16 +198,25 @@ class ChatbotArenaScraper(BaseScraper):
 
 
 class HuggingFaceScraper(BaseScraper):
-    """Scraper for Hugging Face Hub model data."""
+    """Scraper for Hugging Face Hub model data.
 
-    BASE_URL = "https://huggingface.co/api/models"
+    Tries the primary URL first, then falls back to mirrors on network errors.
+    Mirrors are configured in config.json (hf_mirrors).
+    """
+
+    PRIMARY_URL = "https://huggingface.co/api/models"
     MAX_PAGES = 5
     PAGE_LIMIT = 100
 
-    def __init__(self, provider_authors: dict[str, list[str]] | None = None, timeout: int = 30):
+    def __init__(self, provider_authors: dict[str, list[str]] | None = None,
+                 mirrors: list[str] | None = None, timeout: int = 30):
         super().__init__(timeout=timeout)
-        # {provider: [hf_author_names]} — which HF authors to search for each provider
         self.provider_authors = provider_authors or {}
+        # Build URL list: primary first, then each mirror + /api/models
+        self.base_urls = [self.PRIMARY_URL]
+        for m in (mirrors or []):
+            m = m.rstrip("/")
+            self.base_urls.append(f"{m}/api/models")
 
     async def fetch_models(self) -> list[ModelInfo]:
         """Fetch models from Hugging Face Hub.
@@ -291,22 +300,55 @@ class HuggingFaceScraper(BaseScraper):
 
         return models
 
-    async def _fetch_page(self, params: dict, cursor: str | None = None) -> tuple[list, str | None]:
-        """Fetch one page of results. Returns (data, next_cursor)."""
-        url = self.BASE_URL
-        response = await self.fetch(url + "?" + "&".join(f"{k}={v}" for k, v in params.items()))
-        data = response.json()
-        if not isinstance(data, list):
-            data = []
-        # HF API may return cursor in headers or we derive it for pagination
-        next_cursor = None
-        link = response.headers.get("link") or response.headers.get("Link")
-        if link:
-            import re
-            match = re.search(r'cursor=([^&>]+)', link)
-            if match:
-                next_cursor = match.group(1)
-        return data, next_cursor
+    async def _fetch_page(self, params: dict, cursor: str | None = None,
+                          _tried_urls: set[str] | None = None) -> tuple[list, str | None]:
+        """Fetch one page, falling back to mirrors on network errors.
+
+        Tries each base URL in order. On httpx.ConnectError / TimeoutException
+        tries the next mirror. HTTP errors (4xx/5xx) are raised immediately.
+        """
+        import httpx
+
+        if _tried_urls is None:
+            _tried_urls = set()
+
+        query = "&".join(f"{k}={v}" for k, v in params.items())
+        last_error: Exception | None = None
+
+        for i, base_url in enumerate(self.base_urls):
+            if base_url in _tried_urls:
+                continue
+            url = f"{base_url}?{query}"
+            tag = "primary" if i == 0 else f"mirror [{base_url}]"
+
+            try:
+                response = await self.fetch(url)
+                data = response.json()
+                if not isinstance(data, list):
+                    data = []
+                next_cursor = None
+                link = response.headers.get("link") or response.headers.get("Link")
+                if link:
+                    import re
+                    match = re.search(r'cursor=([^&>]+)', link)
+                    if match:
+                        next_cursor = match.group(1)
+                # Success — remember this URL for subsequent pages
+                if i > 0:
+                    self.base_urls.insert(0, self.base_urls.pop(i))
+                return data, next_cursor
+
+            except (httpx.NetworkError, httpx.TimeoutException,
+                    httpx.RemoteProtocolError, OSError) as e:
+                last_error = e
+                _tried_urls.add(base_url)
+                continue  # try next mirror
+
+        # All URLs failed
+        raise RuntimeError(
+            f"Failed to reach HF API after trying {len(self.base_urls)} URL(s). "
+            f"Last error: {last_error}"
+        )
 
     def _parse_model(self, item: dict) -> ModelInfo:
         """Map a Hugging Face model dict to ModelInfo."""

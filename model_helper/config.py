@@ -4,7 +4,7 @@ Stores the list of configured providers in ~/.model_helper/providers.json.
 When providers are configured, only models from those providers are cached/displayed.
 
 If the user config file does not exist, defaults are read from
-model_helper/default_providers.json (shipped with the project, can be
+model_helper/config.json (shipped with the project, can be
 edited or version-controlled).
 """
 
@@ -14,7 +14,7 @@ from pathlib import Path
 
 def _defaults_path() -> Path:
     """Path to the shipped default-providers config file."""
-    return Path(__file__).parent / "default_providers.json"
+    return Path(__file__).parent / "config.json"
 
 
 def _config_path() -> Path:
@@ -50,7 +50,7 @@ def _load_defaults() -> tuple[list[str], dict[str, list[str]], dict[str, str]]:
 
 def get_providers() -> list[str]:
     """Return the list of configured providers.
-    Falls back to defaults (from default_providers.json) if no user config exists.
+    Falls back to defaults (from config.json) if no user config exists.
     """
     path = _config_path()
     if not path.exists():
@@ -65,7 +65,7 @@ def get_providers() -> list[str]:
 
 
 def get_hf_author_map() -> dict[str, str]:
-    """Return {hf_author_name: provider} mapping from default_providers.json.
+    """Return {hf_author_name: provider} mapping from config.json.
 
     Used by HuggingFaceScraper to normalize HF author names to our provider names.
     E.g. {'meta-llama': 'meta', 'mistralai': 'mistral', 'deepseek-ai': 'deepseek'}
@@ -74,7 +74,7 @@ def get_hf_author_map() -> dict[str, str]:
 
 
 def get_hf_provider_authors() -> dict[str, list[str]]:
-    """Return {provider: [hf_author_names]} from default_providers.json.
+    """Return {provider: [hf_author_names]} from config.json.
 
     Used to tell HuggingFaceScraper which HF authors to search for.
     Only returns entries for currently configured providers.
@@ -117,10 +117,22 @@ def remove_provider(name: str) -> bool:
     return True
 
 
+def get_hf_mirrors() -> list[str]:
+    """Return mirror URLs for HuggingFace API, from config.json."""
+    path = _defaults_path()
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text())
+        return data.get("hf_mirrors", [])
+    except (json.JSONDecodeError, ValueError):
+        return []
+
+
 def resolve_providers(providers: list[str]) -> list[str]:
     """Expand provider names to include aliases for matching against cache data.
 
-    Aliases are read from default_providers.json (the 'aliases' section).
+    Aliases are read from config.json (the 'aliases' section).
     E.g. ['alibaba'] -> ['alibaba', 'dashscope']
          ['bytedance'] -> ['bytedance', 'volcengine']
     """

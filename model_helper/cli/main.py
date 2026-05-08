@@ -309,7 +309,10 @@ def cache_update(
                             if p in all_hf:
                                 provider_authors[p] = all_hf[p]
 
-                    async with HuggingFaceScraper(provider_authors=provider_authors) as scraper:
+                    async with HuggingFaceScraper(
+                        provider_authors=provider_authors,
+                        mirrors=config.get_hf_mirrors(),
+                    ) as scraper:
                         models = await scraper.fetch_models()
                         if active_providers:
                             # Additional safety filter: only keep models whose provider
