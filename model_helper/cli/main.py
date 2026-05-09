@@ -369,7 +369,10 @@ def cache_update(
 
             except Exception as e:
                 msg = str(e)
-                if "Cannot reach" in msg or "ConnectTimeout" in msg or "NetworkError" in str(type(e).__name__):
+                is_network = any(
+                    kw in msg for kw in ("Cannot reach", "No HF API", "ConnectTimeout")
+                ) or "NetworkError" in str(type(e).__name__)
+                if is_network:
                     console.print(f"[red]✗ Network error: {msg}[/red]")
                     console.print("[dim]Tip: Check your internet connection or try updating mirrors in config.json[/dim]")
                 else:

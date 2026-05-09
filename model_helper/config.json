@@ -30,6 +30,10 @@
     "bytedance": ["bytedance"]
   },
   "hf_mirrors": [
-    "https://hf-mirror.com"
+    "https://hf-mirror.com",
+    "https://huggingface.sukaka.top",
+    "https://hf.xeduapi.com",
+    "https://hf-api.sukaka.top",
+    "https://hf.siliconflow.cn"
   ]
 }

@@ -200,13 +200,19 @@ class ChatbotArenaScraper(BaseScraper):
 class HuggingFaceScraper(BaseScraper):
     """Scraper for Hugging Face Hub model data.
 
-    Tries the primary URL first, then falls back to mirrors on network errors.
-    Mirrors are configured in config.json (hf_mirrors).
+    Optimizations:
+    - Connection preflight: HEAD each URL to find working endpoints first
+    - Intra-URL retry: 3 attempts per URL with exponential backoff
+    - Mirror fallback: tries primary then mirrors (5+ configured)
+    - Parallel author fetching: fetches multiple authors concurrently
+    - Lightweight listing: fetches basic list first (no full=true overhead)
     """
 
     PRIMARY_URL = "https://huggingface.co/api/models"
     MAX_PAGES = 5
     PAGE_LIMIT = 100
+    RETRY_ATTEMPTS = 3
+    RETRY_BASE_DELAY = 2  # seconds, doubles each retry
 
     def __init__(self, provider_authors: dict[str, list[str]] | None = None,
                  mirrors: list[str] | None = None, timeout: int = 30,
@@ -215,13 +221,15 @@ class HuggingFaceScraper(BaseScraper):
         self.provider_authors = provider_authors or {}
         self.on_progress = on_progress
         # Build URL list: primary first, then each mirror + /api/models
-        self.base_urls = [self.PRIMARY_URL]
+        self._all_urls = [self.PRIMARY_URL]
         for m in (mirrors or []):
             m = m.rstrip("/")
-            self.base_urls.append(f"{m}/api/models")
+            self._all_urls.append(f"{m}/api/models")
+        # working_urls is set after preflight (in __aenter__)
+        self.working_urls: list[str] = []
 
     async def __aenter__(self):
-        """Create client with IPv4 preference (avoids IPv6 timeout issues)."""
+        """Create client with IPv4, then run connection preflight."""
         import httpx
         self.client = httpx.AsyncClient(
             timeout=self.timeout,
@@ -230,36 +238,81 @@ class HuggingFaceScraper(BaseScraper):
             },
             transport=httpx.AsyncHTTPTransport(local_address="0.0.0.0"),
         )
+        self.working_urls = await self._preflight()
+        if not self.working_urls:
+            raise RuntimeError(
+                f"No HF API endpoints reachable. Tried {len(self._all_urls)} URL(s)."
+            )
         return self
+
+    async def _preflight(self) -> list[str]:
+        """HEAD each URL to find working endpoints.
+
+        A quick HEAD request (no body) checks connectivity. Working URLs
+        are returned in order of response speed for optimal routing.
+        """
+        import asyncio as aio
+        import httpx
+
+        async def check(url: str) -> tuple[str, float] | None:
+            try:
+                start = aio.get_event_loop().time()
+                resp = await self.client.head(url, timeout=3.0)
+                elapsed = aio.get_event_loop().time() - start
+                if resp.status_code < 500:
+                    return (url, elapsed)
+            except Exception:
+                pass
+            return None
+
+        tasks = [check(u) for u in self._all_urls]
+        results = await aio.gather(*tasks)
+        working = [r for r in results if r is not None]
+        # Sort by response time (fastest first)
+        working.sort(key=lambda x: x[1])
+        return [url for url, _ in working]
+
+    # ── public fetch entry ────────────────────────────────────────────
 
     async def fetch_models(self) -> list[ModelInfo]:
         """Fetch models from Hugging Face Hub.
 
-        If provider_authors is set, searches by those specific authors.
-        Otherwise fetches the most-downloaded text-generation models.
+        Uses parallel author fetching when provider_authors is set.
         """
-        models: list[ModelInfo] = []
-
         if self.provider_authors:
-            # Search by specific authors for each configured provider
-            all_authors: set[str] = set()
-            provider_for_author: dict[str, str] = {}
-            for provider, authors in self.provider_authors.items():
-                for author in authors:
-                    all_authors.add(author.lower())
-                    provider_for_author[author.lower()] = provider.lower()
-
-            for author in all_authors:
-                page_models = await self._fetch_by_author(author)
-                for m in page_models:
-                    # Normalize provider from author mapping
-                    m.provider = provider_for_author.get(author, m.provider)
-                    models.append(m)
+            return await self._fetch_by_authors_parallel()
         else:
-            # Fetch top downloaded text-generation models
-            models = await self._fetch_top_models()
+            return await self._fetch_top_models()
+
+    # ── parallel author fetching  ─────────────────────────────────────
+
+    async def _fetch_by_authors_parallel(self) -> list[ModelInfo]:
+        """Fetch models for multiple authors concurrently."""
+        import asyncio as aio
+
+        # Collect unique authors and their provider mapping
+        all_authors: set[str] = set()
+        provider_for_author: dict[str, str] = {}
+        for provider, authors in self.provider_authors.items():
+            for author in authors:
+                all_authors.add(author.lower())
+                provider_for_author[author.lower()] = provider.lower()
+
+        # Fetch all authors in parallel
+        tasks = [self._fetch_by_author(a) for a in all_authors]
+        results = await aio.gather(*tasks, return_exceptions=True)
+
+        models: list[ModelInfo] = []
+        for author, result in zip(all_authors, results):
+            if isinstance(result, Exception):
+                continue  # skip failed authors
+            for m in result:
+                m.provider = provider_for_author.get(author, m.provider)
+                models.append(m)
 
         return models
+
+    # ── per-author / top-models fetching  ─────────────────────────────
 
     async def _fetch_by_author(self, author: str) -> list[ModelInfo]:
         """Fetch models by a specific HF author (org/user)."""
@@ -274,7 +327,6 @@ class HuggingFaceScraper(BaseScraper):
                 "sort": "downloads",
                 "direction": "-1",
                 "limit": self.PAGE_LIMIT,
-                "full": "true",
             }
             data, next_cursor = await self._fetch_page(params, cursor)
             page_count = 0
@@ -304,7 +356,6 @@ class HuggingFaceScraper(BaseScraper):
                 "sort": "downloads",
                 "direction": "-1",
                 "limit": self.PAGE_LIMIT,
-                "full": "true",
             }
             data, next_cursor = await self._fetch_page(params, cursor)
             page_count = 0
@@ -322,60 +373,55 @@ class HuggingFaceScraper(BaseScraper):
 
         return models
 
-    async def _fetch_page(self, params: dict, cursor: str | None = None,
-                          _tried_urls: set[str] | None = None) -> tuple[list, str | None]:
-        """Fetch one page, falling back to mirrors on network errors.
+    # ── page fetch with intra-URL retry + mirror fallback  ────────────
 
-        Tries each base URL in order. On network errors tries the next mirror.
-        HTTP errors (4xx/5xx) are raised immediately.
-        Bypasses tenacity retry since mirror fallback serves as the retry.
+    async def _fetch_page(self, params: dict, cursor: str | None = None) -> tuple[list, str | None]:
+        """Fetch one page with retry and mirror fallback.
+
+        For each working URL, retries up to RETRY_ATTEMPTS times with
+        exponential backoff before trying the next URL.
         """
+        import asyncio as aio
         import httpx
-
-        if _tried_urls is None:
-            _tried_urls = set()
 
         query = "&".join(f"{k}={v}" for k, v in params.items())
         urls_tried: list[str] = []
         last_error: Exception | None = None
 
-        for i, base_url in enumerate(self.base_urls):
-            if base_url in _tried_urls:
-                continue
+        for base_url in self.working_urls:
             url = f"{base_url}?{query}"
             urls_tried.append(base_url)
 
-            try:
-                # Use client directly (not self.fetch) to skip tenacity retry
-                if not self.client:
-                    raise RuntimeError("Scraper not initialized")
-                response = await self.client.get(url)
-                response.raise_for_status()
-                data = response.json()
-                if not isinstance(data, list):
-                    data = []
-                next_cursor = None
-                link = response.headers.get("link") or response.headers.get("Link")
-                if link:
-                    import re
-                    match = re.search(r'cursor=([^&>]+)', link)
-                    if match:
-                        next_cursor = match.group(1)
-                # Success — promote this URL to front for subsequent requests
-                if i > 0:
-                    self.base_urls.insert(0, self.base_urls.pop(i))
-                return data, next_cursor
+            for attempt in range(self.RETRY_ATTEMPTS):
+                try:
+                    if not self.client:
+                        raise RuntimeError("Scraper not initialized")
+                    response = await self.client.get(url)
+                    response.raise_for_status()
+                    data = response.json()
+                    if not isinstance(data, list):
+                        data = []
+                    next_cursor = None
+                    link = response.headers.get("link") or response.headers.get("Link")
+                    if link:
+                        import re
+                        match = re.search(r'cursor=([^&>]+)', link)
+                        if match:
+                            next_cursor = match.group(1)
+                    return data, next_cursor
 
-            except (httpx.NetworkError, httpx.TimeoutException,
-                    httpx.RemoteProtocolError, OSError,
-                    httpx.HTTPStatusError) as e:
-                last_error = e
-                _tried_urls.add(base_url)
-                # On HTTP status errors (502, 503) also try mirror
-                if isinstance(e, httpx.HTTPStatusError):
-                    if e.response.status_code < 500:
-                        raise  # 4xx — don't retry
-                continue  # try next mirror
+                except (httpx.NetworkError, httpx.TimeoutException,
+                        httpx.RemoteProtocolError, OSError,
+                        httpx.HTTPStatusError) as e:
+                    last_error = e
+                    if isinstance(e, httpx.HTTPStatusError):
+                        if e.response.status_code < 500:
+                            raise  # 4xx — don't retry
+                    if attempt < self.RETRY_ATTEMPTS - 1:
+                        delay = self.RETRY_BASE_DELAY * (2 ** attempt)
+                        await aio.sleep(delay)
+                        continue
+                    break  # exhausted retries for this URL, try next
 
         # All URLs failed
         urls_str = " -> ".join(urls_tried)
@@ -385,21 +431,28 @@ class HuggingFaceScraper(BaseScraper):
             f"Last error: {err_detail}"
         )
 
+    # ── model parsing  ────────────────────────────────────────────────
+
     def _parse_model(self, item: dict) -> ModelInfo:
-        """Map a Hugging Face model dict to ModelInfo."""
+        """Map a Hugging Face model dict to ModelInfo.
+
+        Uses basic list fields (no full=true needed): id, author, tags,
+        pipeline_tag, downloads, likes. Config/safetensors fields are
+        populated only when available (when full=true was used upstream).
+        """
         model_id = item.get("id", "")
         author = item.get("author", "unknown")
         config = item.get("config") or {}
+        tags = [t.lower() for t in item.get("tags", [])]
 
-        # Total parameters from safetensors (largest precision)
+        # Total parameters from safetensors (available only with full=true)
         total_params = None
         st = item.get("safetensors") or {}
         st_params = st.get("parameters") or {}
         if st_params:
-            # st_params is dict like {"BF16": 8e9, "F32": 16e9}
             total_params = int(max(st_params.values()))
 
-        # Architecture
+        # Architecture from config
         arch = None
         raw_archs = config.get("architectures") or []
         if raw_archs:
@@ -413,13 +466,19 @@ class HuggingFaceScraper(BaseScraper):
         ctx = config.get("max_position_embeddings")
 
         # Capabilities from tags
-        tags = [t.lower() for t in item.get("tags", [])]
         supports_vision = any(t in tags for t in ("image-to-text", "image-text-to-text", "visual", "vision"))
         supports_function_calling = any(t in tags for t in ("function-calling", "tool-use", "tool_calling"))
 
+        # License from tags or cardData
         card = item.get("cardData") or {}
+        license_val = str(card.get("license", "")) if card.get("license") else None
+        if not license_val:
+            for t in tags:
+                if t.startswith("license:"):
+                    license_val = t.split(":", 1)[1]
+                    break
 
-        # Derive family from tags or model_name
+        # Family from config or tags
         family = None
         model_type = config.get("model_type", "").lower()
         if model_type:
@@ -439,7 +498,7 @@ class HuggingFaceScraper(BaseScraper):
             context_length=ctx,
             supports_vision=supports_vision,
             supports_function_calling=supports_function_calling,
-            license=str(card.get("license", "")) if card.get("license") else None,
+            license=license_val,
             huggingface_id=model_id,
             source="huggingface",
         )
