@@ -220,6 +220,18 @@ class HuggingFaceScraper(BaseScraper):
             m = m.rstrip("/")
             self.base_urls.append(f"{m}/api/models")
 
+    async def __aenter__(self):
+        """Create client with IPv4 preference (avoids IPv6 timeout issues)."""
+        import httpx
+        self.client = httpx.AsyncClient(
+            timeout=self.timeout,
+            headers={
+                "User-Agent": "Model-Helper/1.0 (LLM Model Research Tool)",
+            },
+            transport=httpx.AsyncHTTPTransport(local_address="0.0.0.0"),
+        )
+        return self
+
     async def fetch_models(self) -> list[ModelInfo]:
         """Fetch models from Hugging Face Hub.
 
@@ -314,8 +326,9 @@ class HuggingFaceScraper(BaseScraper):
                           _tried_urls: set[str] | None = None) -> tuple[list, str | None]:
         """Fetch one page, falling back to mirrors on network errors.
 
-        Tries each base URL in order. On httpx.ConnectError / TimeoutException
-        tries the next mirror. HTTP errors (4xx/5xx) are raised immediately.
+        Tries each base URL in order. On network errors tries the next mirror.
+        HTTP errors (4xx/5xx) are raised immediately.
+        Bypasses tenacity retry since mirror fallback serves as the retry.
         """
         import httpx
 
@@ -323,16 +336,21 @@ class HuggingFaceScraper(BaseScraper):
             _tried_urls = set()
 
         query = "&".join(f"{k}={v}" for k, v in params.items())
+        urls_tried: list[str] = []
         last_error: Exception | None = None
 
         for i, base_url in enumerate(self.base_urls):
             if base_url in _tried_urls:
                 continue
             url = f"{base_url}?{query}"
-            tag = "primary" if i == 0 else f"mirror [{base_url}]"
+            urls_tried.append(base_url)
 
             try:
-                response = await self.fetch(url)
+                # Use client directly (not self.fetch) to skip tenacity retry
+                if not self.client:
+                    raise RuntimeError("Scraper not initialized")
+                response = await self.client.get(url)
+                response.raise_for_status()
                 data = response.json()
                 if not isinstance(data, list):
                     data = []
@@ -343,21 +361,28 @@ class HuggingFaceScraper(BaseScraper):
                     match = re.search(r'cursor=([^&>]+)', link)
                     if match:
                         next_cursor = match.group(1)
-                # Success — remember this URL for subsequent pages
+                # Success — promote this URL to front for subsequent requests
                 if i > 0:
                     self.base_urls.insert(0, self.base_urls.pop(i))
                 return data, next_cursor
 
             except (httpx.NetworkError, httpx.TimeoutException,
-                    httpx.RemoteProtocolError, OSError) as e:
+                    httpx.RemoteProtocolError, OSError,
+                    httpx.HTTPStatusError) as e:
                 last_error = e
                 _tried_urls.add(base_url)
+                # On HTTP status errors (502, 503) also try mirror
+                if isinstance(e, httpx.HTTPStatusError):
+                    if e.response.status_code < 500:
+                        raise  # 4xx — don't retry
                 continue  # try next mirror
 
         # All URLs failed
+        urls_str = " -> ".join(urls_tried)
+        err_detail = str(last_error) if last_error and str(last_error) else type(last_error).__name__
         raise RuntimeError(
-            f"Failed to reach HF API after trying {len(self.base_urls)} URL(s). "
-            f"Last error: {last_error}"
+            f"Cannot reach HuggingFace API. Tried: {urls_str}. "
+            f"Last error: {err_detail}"
         )
 
     def _parse_model(self, item: dict) -> ModelInfo:

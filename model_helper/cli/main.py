@@ -311,7 +311,7 @@ def cache_update(
 
                     # Progress state shared between callback and status updater
                     progress_state: dict = {"author": "", "page": 0, "total": 0}
-                    status = console.status("")
+                    status = console.status("[bold cyan]Connecting to HuggingFace API...[/bold cyan]")
 
                     def on_progress(author: str, page: int, count: int) -> None:
                         progress_state["author"] = author
@@ -329,14 +329,16 @@ def cache_update(
                             )
 
                     status.start()
-                    async with HuggingFaceScraper(
-                        provider_authors=provider_authors,
-                        mirrors=config.get_hf_mirrors(),
-                        timeout=timeout,
-                        on_progress=on_progress,
-                    ) as scraper:
-                        models = await scraper.fetch_models()
-                    status.stop()
+                    try:
+                        async with HuggingFaceScraper(
+                            provider_authors=provider_authors,
+                            mirrors=config.get_hf_mirrors(),
+                            timeout=timeout,
+                            on_progress=on_progress,
+                        ) as scraper:
+                            models = await scraper.fetch_models()
+                    finally:
+                        status.stop()
 
                     if active_providers:
                         models = [m for m in models if m.provider.lower() in active_providers]
@@ -366,7 +368,12 @@ def cache_update(
                     console.print(f"[green]✓ Added {len(all_benchmarks)} benchmarks[/green]")
 
             except Exception as e:
-                console.print(f"[red]✗ Failed to update from {src}: {e}[/red]")
+                msg = str(e)
+                if "Cannot reach" in msg or "ConnectTimeout" in msg or "NetworkError" in str(type(e).__name__):
+                    console.print(f"[red]✗ Network error: {msg}[/red]")
+                    console.print("[dim]Tip: Check your internet connection or try updating mirrors in config.json[/dim]")
+                else:
+                    console.print(f"[red]✗ Failed to update from {src}: {msg}[/red]")
 
         console.print("[bold green]Cache update complete![/bold green]")
 
