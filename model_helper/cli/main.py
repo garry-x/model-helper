@@ -467,6 +467,92 @@ def provider_list():
 
 
 @app.command()
+def install(
+    system: bool = typer.Option(False, "--system", "-s", help="Symlink wrapper to /usr/local/bin (requires sudo)"),
+    user: bool = typer.Option(False, "--user", "-u", help="Symlink wrapper to ~/.local/bin for user-level access"),
+):
+    """Install model-helper: create venv, install package, set up wrapper script.
+
+    By default, installs the Python package in dev mode and reports
+    how to run the tool.  Use --user or --system to also create a
+    symlink for system-wide CLI access.
+    """
+    import os
+    import stat
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    project_dir = Path(__file__).resolve().parent.parent.parent
+    venv_dir = project_dir / "venv"
+    wrapper = project_dir / "model-helper"
+
+    # Step 1: create venv if needed
+    if not (venv_dir / "bin" / "python").exists():
+        console.print("[cyan]Creating virtual environment...[/cyan]")
+        result = subprocess.run(
+            [sys.executable, "-m", "venv", str(venv_dir)],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            console.print(f"[red]✗ Failed to create venv: {result.stderr}[/red]")
+            raise typer.Exit(1)
+        console.print("[green]✓ Virtual environment created[/green]")
+    else:
+        console.print("[dim]Virtual environment already exists[/dim]")
+
+    venv_python = str(venv_dir / "bin" / "python")
+    venv_pip = str(venv_dir / "bin" / "pip")
+
+    # Step 2: install package in editable mode
+    console.print("[cyan]Installing model-helper (editable mode)...[/cyan]")
+    result = subprocess.run(
+        [venv_python, "-m", "pip", "install", "-e", str(project_dir), "--quiet"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        console.print(f"[red]✗ Install failed: {result.stderr}[/red]")
+        raise typer.Exit(1)
+    console.print("[green]✓ Package installed[/green]")
+
+    # Step 3: make the wrapper script executable
+    wrapper.chmod(wrapper.stat().st_mode | stat.S_IEXEC)
+
+    # Step 4: symlink if requested
+    link_dest = None
+    if system:
+        link_dest = Path("/usr/local/bin/model-helper")
+    elif user:
+        link_dest = Path.home() / ".local" / "bin" / "model-helper"
+        link_dest.parent.mkdir(parents=True, exist_ok=True)
+
+    if link_dest:
+        if link_dest.exists() or link_dest.is_symlink():
+            link_dest.unlink()
+        link_dest.symlink_to(wrapper.resolve())
+        console.print(f"[green]✓ Symlinked to {link_dest}[/green]")
+
+        # Check if the dest is in PATH
+        path_dirs = os.environ.get("PATH", "").split(":")
+        if str(link_dest.parent) not in path_dirs:
+            console.print(f"[yellow]⚠ {link_dest.parent} is not in your PATH[/yellow]")
+            if user:
+                console.print("[dim]  Add this to your shell profile:[/dim]")
+                console.print(f'[dim]  export PATH="$HOME/.local/bin:$PATH"[/dim]')
+            elif system:
+                console.print("[dim]  Check your PATH configuration.[/dim]")
+
+    console.print()
+    console.print("[bold green]Installation complete![/bold green]")
+    if not link_dest:
+        console.print(f"Run with: [bold]{wrapper}[/bold]")
+        console.print("[dim]Or use --user / --system to symlink for system-wide access.[/dim]")
+        return
+
+    console.print("[bold]Run with:[/bold] model-helper <command>")
+
+
+@app.command()
 def web(
     host: str = typer.Option("0.0.0.0", "--host", help="Host to bind to"),
     port: int = typer.Option(8000, "--port", help="Port to bind to"),

@@ -4,7 +4,16 @@ set -euo pipefail
 # model-helper bash wrapper — auto-activates the venv and runs the CLI
 # Usage: ./model-helper <command> [args...]
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Follow symlinks to find the real project directory (portable macOS/Linux)
+RESOLVED="$0"
+while [ -L "$RESOLVED" ]; do
+    TARGET="$(readlink "$RESOLVED")"
+    case "$TARGET" in
+        /*) RESOLVED="$TARGET" ;;
+        *)  RESOLVED="$(dirname "$RESOLVED")/$TARGET" ;;
+    esac
+done
+SCRIPT_DIR="$(cd "$(dirname "$RESOLVED")" && pwd)"
 VENV_PYTHON="${SCRIPT_DIR}/venv/bin/python"
 
 if [[ ! -f "${VENV_PYTHON}" ]]; then
