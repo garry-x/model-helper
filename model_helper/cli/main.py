@@ -277,6 +277,7 @@ def cache_status():
 @app.command()
 def cache_update(
     source: Optional[str] = typer.Option(None, "--source", "-s", help="Update specific source (huggingface, benchmarks)"),
+    timeout: int = typer.Option(60, "--timeout", "-t", help="HTTP request timeout in seconds"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed progress"),
 ):
     """Update cache with latest data from online sources.
@@ -301,7 +302,6 @@ def cache_update(
 
             try:
                 if src == "huggingface":
-                    # Build provider->authors mapping for configured providers
                     provider_authors = {}
                     if providers:
                         all_hf = config.get_hf_provider_authors()
@@ -309,21 +309,48 @@ def cache_update(
                             if p in all_hf:
                                 provider_authors[p] = all_hf[p]
 
+                    # Progress state shared between callback and status updater
+                    progress_state: dict = {"author": "", "page": 0, "total": 0}
+                    status = console.status("")
+
+                    def on_progress(author: str, page: int, count: int) -> None:
+                        progress_state["author"] = author
+                        progress_state["page"] = page
+                        progress_state["total"] += count
+                        label = author if author else "top-models"
+                        status.update(
+                            f"[bold cyan]Fetching {label} page {page}... "
+                            f"([dim]{progress_state['total']} models so far[/dim])"
+                        )
+                        if verbose:
+                            console.print(
+                                f"[dim]  {label} page {page}: {count} models "
+                                f"(running total: {progress_state['total']})[/dim]"
+                            )
+
+                    status.start()
                     async with HuggingFaceScraper(
                         provider_authors=provider_authors,
                         mirrors=config.get_hf_mirrors(),
+                        timeout=timeout,
+                        on_progress=on_progress,
                     ) as scraper:
                         models = await scraper.fetch_models()
-                        if active_providers:
-                            # Additional safety filter: only keep models whose provider
-                            # is in the configured set (after HF author normalization)
-                            models = [m for m in models if m.provider.lower() in active_providers]
-                        for model in models:
+                    status.stop()
+
+                    if active_providers:
+                        models = [m for m in models if m.provider.lower() in active_providers]
+
+                    with console.status(f"[bold cyan]Saving {len(models)} models to cache...[/bold cyan]"):
+                        for i, model in enumerate(models):
                             await cache.save_model(model)
-                        msg = f"✓ Added {len(models)} models from HuggingFace"
-                        if providers:
-                            msg += " (filtered by configured providers)"
-                        console.print(f"[green]{msg}[/green]")
+                            if verbose and (i + 1) % 100 == 0:
+                                console.print(f"[dim]  saved {i + 1}/{len(models)}[/dim]")
+
+                    msg = f"✓ Added {len(models)} models from HuggingFace"
+                    if providers:
+                        msg += " (filtered by configured providers)"
+                    console.print(f"[green]{msg}[/green]")
 
                 elif src == "benchmarks":
                     all_benchmarks = []

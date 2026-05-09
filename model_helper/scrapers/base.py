@@ -2,7 +2,7 @@
 
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -209,9 +209,11 @@ class HuggingFaceScraper(BaseScraper):
     PAGE_LIMIT = 100
 
     def __init__(self, provider_authors: dict[str, list[str]] | None = None,
-                 mirrors: list[str] | None = None, timeout: int = 30):
+                 mirrors: list[str] | None = None, timeout: int = 30,
+                 on_progress: Optional[Callable] = None):
         super().__init__(timeout=timeout)
         self.provider_authors = provider_authors or {}
+        self.on_progress = on_progress
         # Build URL list: primary first, then each mirror + /api/models
         self.base_urls = [self.PRIMARY_URL]
         for m in (mirrors or []):
@@ -263,11 +265,15 @@ class HuggingFaceScraper(BaseScraper):
                 "full": "true",
             }
             data, next_cursor = await self._fetch_page(params, cursor)
+            page_count = 0
             for item in data:
                 if isinstance(item, dict) and item.get("id"):
                     models.append(self._parse_model(item))
+                    page_count += 1
 
             pages += 1
+            if self.on_progress:
+                self.on_progress(author, pages, page_count)
             if not next_cursor or len(data) < self.PAGE_LIMIT:
                 break
             cursor = next_cursor
@@ -289,11 +295,15 @@ class HuggingFaceScraper(BaseScraper):
                 "full": "true",
             }
             data, next_cursor = await self._fetch_page(params, cursor)
+            page_count = 0
             for item in data:
                 if isinstance(item, dict) and item.get("id"):
                     models.append(self._parse_model(item))
+                    page_count += 1
 
             pages += 1
+            if self.on_progress:
+                self.on_progress("", pages, page_count)
             if not next_cursor or len(data) < self.PAGE_LIMIT:
                 break
             cursor = next_cursor
